@@ -1,36 +1,47 @@
 require "bundler"
 Bundler.require
 
-# doc = Nokogiri::HTML(File.open("response.html"))
-# doc.css("#DataTables_Table_0 tbody tr").each do |row|
-#   name = row.children[1].children[0].text
-#   usage = row.children[7].children[1].text
-#   data = {name: name, usage: usage}
-#   puts("row =#{data}")
-# end
-#
-# exit
-
-class ExampleSpider < Kimurai::Base
+class Obj::Scraper
+  class Spider < Kimurai::Base
     @name = "brultech_spider"
     @engine = :selenium_chrome
     @start_urls = ["http://192.168.0.10/"]
-    # @config = {
-    #     before_request: {
-    #       # Process delay before each request:
-    #       delay: 3..5
-    #     }
-    #   }
-    def self.open_spider
-      logger.info "> Starting..."
+
+    def self.class_init(readings_dir, status_proc)
+      @readings_dir = readings_dir
+      @status_proc = status_proc
     end
-  
+
+    def self.log(str)
+      @status_proc.call(str)
+      # logger.info(str)
+    end
+
+    def self.open_spider
+      log "> Starting..."
+    end
+
     def self.close_spider
-      logger.info "> Stopped!"
+      log "> Stopped!"
+    end
+
+    def self.readings_dir
+      @readings_dir
+    end
+
+    def readings_dir
+      self.class.readings_dir
+    end
+
+    def log(str)
+      self.class.log(str)
     end
 
     def parse_page(table_id, day_num)
-      logger.info "before get response"
+      found_table = false
+      found_file = true
+
+      log "before get response"
 
       sleep 1
 
@@ -50,14 +61,15 @@ class ExampleSpider < Kimurai::Base
           date = Time.now.to_date - day_num
         end
       end
-      logger.info "-------------------------------"
-      logger.info "DATE: #{date}"
-      filename = "readings/#{date.iso8601}.json"
+      log "-------------------------------"
+      log "DATE: #{date}"
+      filename = "#{readings_dir}/#{date.iso8601}.json"
 
       if File.exist?(filename)
-        logger.info "File Exists"
-        return false
+        log "File Exists"
+        return [found_table, found_file]
       end
+      found_file = false
 
       sleep 10
 
@@ -65,12 +77,11 @@ class ExampleSpider < Kimurai::Base
       File.open("response.html", "w") {|f| f.write response}
       doc = Nokogiri::HTML(File.open("response.html"))
 
-      File.open("readings/#{date.iso8601}.html", "w") {|f| f.write(File.read("response.html")) }
+      File.open("#{readings_dir}/#{date.iso8601}.html", "w") {|f| f.write(File.read("response.html")) }
 
       daily = { date: date.iso8601, readings: {} }
       css = "##{table_id} tbody tr"
       logger.info "TABLE CSS: #{css}"
-      found = false
       doc.css(css).each do |row|
         name = row.children[1].children[0].text
         usage = row.children[7].children[1].text
@@ -78,20 +89,20 @@ class ExampleSpider < Kimurai::Base
         daily[:readings][name] = usage
         # logger.info "reading: #{name} = #{usage}"
         if !found
-          logger.info "FOUND entry"
-          found = true
+          log "FOUND entry"
+          found_table = true
         end
       end
+
       File.open(filename, "w") do |f|
        f.write(daily.to_json)
       end
 
-      return found
+      return [found_table, found_file]
     end
 
-
     def parse(response, url:, data: {})
-      logger.info "> Scraping..."
+      log "> Scraping..."
 
       day_num = 0
       num_days = 750
@@ -101,12 +112,12 @@ class ExampleSpider < Kimurai::Base
       loop do
         browser.find(:xpath, "//div[@id='sumSettingsHolder' and @class='grid-stack-item menu sumOriginal']//a[@title='Previous Period']").click
 
-        found_table = parse_page("DataTables_Table_#{index}", day_num)
+        found_table, found_file = parse_page("DataTables_Table_#{index}", day_num)
 
         day_num += 1
         num_days -= 1
         index += 2 if found_table
-        break if num_days <= 0
+        break if num_days <= 0 || found_file
       end
 
       # readings = doc.css("#summaryActive .amcharts-main-div .amcharts-chart-div svg").
@@ -114,5 +125,9 @@ class ExampleSpider < Kimurai::Base
       #              children.map{|c| c.attributes["aria-label"].value}
     end
   end
-  
-  ExampleSpider.crawl!
+
+  def self.scrape(readings_dir:, status_proc: ->(str){})
+    Spider.class_init(readings_dir, status_proc)
+    Spider.crawl!
+  end
+end
