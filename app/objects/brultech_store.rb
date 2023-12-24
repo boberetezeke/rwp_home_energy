@@ -39,6 +39,7 @@ class Obj::BrultechStore < Obj::Store
 
     puts "Brultech readings: #{brultech_readings.size}"
     brultech_readings.each.with_index do |brultech_reading, index|
+      puts "processing readings: #{index}"
       db_power_circuit = find_or_add_power_circuit(brultech_reading.power_circuit) if brultech_reading.power_circuit
       db_brultech_reading = find_or_add_brultech_reading(brultech_reading, status_proc: status_proc)
       db_brultech_reading.power_circuit = db_power_circuit
